@@ -1,13 +1,67 @@
 import argparse
+import asyncio
 import datetime
+import logging
 import os
 import sys
-import threading
+from threading import Thread
 
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
 from flask import Flask, render_template_string, request, send_from_directory
+
+TEMPLATE = """
+    <html>
+        <body>
+            <h1>Audio Recorder</h1>
+            <label for="device">Choose a device:</label>
+            <select id="device">
+                {{ options|safe }}
+            </select>
+            <label for="channels">Number of Channels:</label>
+            <select id="channels">
+                <option value="1" selected>1 (Mono)</option>
+                <option value="2">2 (Stereo)</option>
+            </select>
+            <p id="messages">
+                {% if recording_in_progress %}
+                    <b>Recording in progress!</b>
+                {% endif %}
+            </p>
+            <p>
+            <button onclick="startRecording()">Start Recording</button>
+            <button onclick="stopRecording()">Stop Recording</button>
+            </p>
+            <h2>Recorded Files</h2>
+            <table>
+                <tr>
+                    <th>File Name</th>
+                    <th>Action</th>
+                </tr>
+                {{ files_table|safe }}
+            </table>
+            <script>
+                function startRecording() {
+                    var device = document.getElementById('device').value;
+                    var channels = document.getElementById('channels').value;
+                    fetch(`/start?device=${device}&channels=${channels}`)
+                        .then((resp) => resp.text())
+                        .then((body) => {
+                            document.getElementById('messages').innerHTML = body
+                        });
+                }
+                function stopRecording() {
+                    fetch('/stop')
+                        .then((resp) => resp.text())
+                        .then((body) => {
+                            document.getElementById('messages').innerHTML = body
+                        });
+                }
+            </script>
+        </body>
+    </html>
+    """
 
 # Parse CLI arguments
 parser = argparse.ArgumentParser(description="Audio Recorder Web Application")
@@ -30,17 +84,52 @@ elif not os.access(recordings_folder, os.W_OK):
 
 app = Flask(__name__)
 
-# Audio recording parameters
-FORMAT = "float32"  # sounddevice uses float32
-CHANNELS = 2
-RATE = 44100
-CHUNK = 1024
-DTYPE = np.float32  # Match the NumPy dtype to the sounddevice format
-
 # Global variables
-recording_thread = None
-stop_event = None
-frames = []
+RATE = 44100
+async_recorder = None
+loop = asyncio.new_event_loop()
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger("recorder")
+
+
+class AsyncAudioRecorder:
+    def __init__(self, channels, device_index, samplerate=44100, buffer_size=1024):
+        self.filename = generate_filename()
+        self.samplerate = samplerate
+        self.channels = channels
+        self.buffer_size = buffer_size
+        self.recording = False
+        self.device_index = device_index
+        self.buffer = []
+
+    async def record(self):
+        self.recording = True
+        with sf.SoundFile(
+            self.filename,
+            mode="w",
+            samplerate=self.samplerate,
+            channels=self.channels,
+            format="FLAC",
+        ) as file:
+            with sd.InputStream(
+                device=self.device_index,
+                samplerate=self.samplerate,
+                channels=self.channels,
+                callback=self.audio_callback,
+            ):
+                while self.recording:
+                    await asyncio.sleep(0.1)
+                    if len(self.buffer) >= self.buffer_size:
+                        data = np.concatenate(self.buffer, axis=0)
+                        file.write(data)
+                        self.buffer = []
+
+    def audio_callback(self, indata, frames, time, status):
+        self.buffer.append(indata.copy())
+
+    def stop(self):
+        self.recording = False
 
 
 def get_input_devices():
@@ -53,40 +142,17 @@ def get_input_devices():
     return input_devices
 
 
-def record_audio(device_index, channels):
-    global frames, stop_event
-    frames = []
-    # silence_threshold = 0.001  # Define a threshold for silence (this might need adjustment)
-    # max_silence_duration = 3600  # 1 hour in seconds
-    # silence_duration = 0
-
-    def callback(indata, frame_count, time, status):
-        global silence_duration
-        if status:
-            print(status)
-        if stop_event.is_set():
-            raise sd.CallbackAbort
-
-        # rms_value = np.sqrt(np.mean(indata**2))
-        # if rms_value < silence_threshold:
-        #     silence_duration += frame_count / RATE
-        #     if silence_duration >= max_silence_duration:
-        #         print("Silence detected for 1 hour, stopping recording.")
-        #         stop_event.set()
-        #         raise sd.CallbackAbort
-        # else:
-        #     silence_duration = 0
-        frames.append(indata.copy())
-
-    with sd.InputStream(
-        device=device_index, channels=channels, samplerate=RATE, callback=callback
-    ):
-        while not stop_event.is_set():
-            sd.sleep(1000)  # Wait for a second at a time; this can be adjusted
+def generate_filename():
+    now = datetime.datetime.now()
+    return os.path.join(
+        recordings_folder,
+        now.strftime("%Y%m%d_%H%M%S") + ".flac",
+    )
 
 
 @app.route("/", methods=["GET"])
 def index():
+    global async_recorder
     devices = get_input_devices()
     options = "".join(
         [
@@ -94,9 +160,11 @@ def index():
             for i, name, channels in devices
         ]
     )
+
     recording_in_progress = False
-    if recording_thread is not None and recording_thread.is_alive():
+    if async_recorder is not None and async_recorder.recording:
         recording_in_progress = True
+
     files = [f for f in os.listdir(recordings_folder) if f.endswith(".flac")]
     files_table = "".join(
         [
@@ -105,49 +173,7 @@ def index():
         ]
     )
     return render_template_string(
-        """
-    <html>
-        <body>
-            <h1>Audio Recorder</h1>
-            <label for="device">Choose a device:</label>
-            <select id="device">
-                {{ options|safe }}
-            </select>
-            <label for="channels">Number of Channels:</label>
-            <select id="channels">
-                <option value="1">1 (Mono)</option>
-                <option value="2" selected>2 (Stereo)</option>
-            </select>
-            {% if recording_in_progress %}
-            <p>
-                <b>Recording in progress!</b>
-            </p>
-            {% endif %}
-            <p>
-            <button onclick="startRecording()">Start Recording</button>
-            <button onclick="stopRecording()">Stop Recording</button>
-            </p>
-            <h2>Recorded Files</h2>
-            <table>
-                <tr>
-                    <th>File Name</th>
-                    <th>Action</th>
-                </tr>
-                {{ files_table|safe }}
-            </table>
-            <script>
-                function startRecording() {
-                    var device = document.getElementById('device').value;
-                    var channels = document.getElementById('channels').value;
-                    fetch(`/start?device=${device}&channels=${channels}`).then(() => window.location.reload());
-                }
-                function stopRecording() {
-                    fetch('/stop').then(() => window.location.reload());
-                }
-            </script>
-        </body>
-    </html>
-    """,
+        TEMPLATE,
         options=options,
         files_table=files_table,
         recording_in_progress=recording_in_progress,
@@ -156,51 +182,38 @@ def index():
 
 @app.route("/start", methods=["GET"])
 def start():
-    global recording_thread, stop_event
+    global async_recorder
+
     device_index = int(request.args.get("device", 0))
     channels = int(request.args.get("channels", 2))
-    print(recording_thread)
-    if recording_thread is None or not recording_thread.is_alive():
-        stop_event = threading.Event()
-        recording_thread = threading.Thread(
-            target=record_audio,
-            args=(
-                device_index,
-                channels,
-            ),
+
+    if async_recorder and async_recorder.recording:
+        return render_template_string("<b>Recording is already in progress</b>")
+
+    try:
+        async_recorder = AsyncAudioRecorder(
+            channels=channels, device_index=device_index
         )
-        recording_thread.start()
-        return render_template_string(
-            "<html><body><h1>Recording Started</h1></body></html>"
-        )
-    else:
-        return render_template_string(
-            "<html><body><h1>Recording is already in progress</h1></body></html>"
-        )
+
+        t = Thread(target=loop.run_until_complete, args=(async_recorder.record(),))
+        t.start()
+
+        return render_template_string("<b>Recording Started</b>")
+    except Exception as e:
+        logger.exception(e)
+        return render_template_string("<b>" + str(e) + "</b>")
 
 
 @app.route("/stop", methods=["GET"])
 def stop():
-    global frames, stop_event, recording_thread
-    if recording_thread and recording_thread.is_alive():
-        stop_event.set()  # Signal the thread to stop
-        recording_thread.join()  # Wait for the recording thread to finish
-        recording_thread = None  # Reset the thread variable
+    global async_recorder
+    if async_recorder is not None:
+        async_recorder.stop()
+        async_recorder = None
 
-        # Save the recording
-        file_name = os.path.join(
-            recordings_folder,
-            datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".flac",
-        )
-        sf.write(file_name, np.concatenate(frames), RATE, format="FLAC")
-        frames = []  # Clear frames to free memory
-        return render_template_string(
-            "<html><body><h1>Recording Stopped</h1></body></html>"
-        )
+        return render_template_string("<b>Recording Stopped</b>")
     else:
-        return render_template_string(
-            "<html><body><h1>No active recording to stop</h1></body></html>"
-        )
+        return render_template_string("<b>No active recording to stop</b>")
 
 
 @app.route("/download/<filename>", methods=["GET"])
@@ -209,4 +222,5 @@ def download(filename):
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", debug=False)
+    asyncio.set_event_loop(loop)
+    app.run(host="0.0.0.0", port=8080)
