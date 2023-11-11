@@ -8,10 +8,11 @@ I used a USB sound card and got a TRS cable to plug into the output of my digita
 Setup cost:
 
 - Pi-zero dev kit (include case and power bank): $35
-- USB Sound card: $14 dollars
-- USB Female to microUSB male: $5 dollars
+- USB Sound card: $14
+- 1/4" male to 1/8" male TRS cable: $10
+- USB Female to microUSB male: $5
 
-Total setup cost: 55 + taxes
+Total setup cost: $65 + taxes
 
 With this script I can start a recording and stop it manually and download the FLAC files to my computer. (Screenshot says WAV but I changed the script afterwards).
 
