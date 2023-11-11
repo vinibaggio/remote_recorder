@@ -19,4 +19,6 @@ Enjoy!
 
 Note: the script was 90% written by Chat-GPT with a few prompts for it to fix the script itself. Neat!
 
+Notice: I am not responsible for anything that might happen to you, run this very janky and unprotected script at your own risk.
+
 Copyright: Public domain.

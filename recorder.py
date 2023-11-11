@@ -97,7 +97,7 @@ def index():
     recording_in_progress = False
     if recording_thread is not None and recording_thread.is_alive():
         recording_in_progress = True
-    files = [f for f in os.listdir(recordings_folder) if f.endswith(".wav")]
+    files = [f for f in os.listdir(recordings_folder) if f.endswith(".flac")]
     files_table = "".join(
         [
             f'<tr><td>{f}</td><td><a href="/download/{f}">Download</a></td></tr>'
@@ -190,7 +190,7 @@ def stop():
         # Save the recording
         file_name = os.path.join(
             recordings_folder,
-            datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".wav",
+            datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".flac",
         )
         sf.write(file_name, np.concatenate(frames), RATE, format="FLAC")
         frames = []  # Clear frames to free memory
@@ -209,4 +209,4 @@ def download(filename):
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", debug=True)
+    app.run(host="0.0.0.0", debug=False)
