@@ -12,55 +12,65 @@ import soundfile as sf
 from flask import Flask, render_template_string, request, send_from_directory
 
 TEMPLATE = """
-    <html>
-        <body>
-            <h1>Audio Recorder</h1>
-            <label for="device">Choose a device:</label>
-            <select id="device">
-                {{ options|safe }}
-            </select>
-            <label for="channels">Number of Channels:</label>
-            <select id="channels">
-                <option value="1" selected>1 (Mono)</option>
-                <option value="2">2 (Stereo)</option>
-            </select>
-            <p id="messages">
-                {% if recording_in_progress %}
-                    <b>Recording in progress!</b>
-                {% endif %}
-            </p>
-            <p>
-            <button onclick="startRecording()">Start Recording</button>
-            <button onclick="stopRecording()">Stop Recording</button>
-            </p>
-            <h2>Recorded Files</h2>
-            <table>
-                <tr>
-                    <th>File Name</th>
-                    <th>Action</th>
-                </tr>
-                {{ files_table|safe }}
-            </table>
-            <script>
-                function startRecording() {
-                    var device = document.getElementById('device').value;
-                    var channels = document.getElementById('channels').value;
-                    fetch(`/start?device=${device}&channels=${channels}`)
-                        .then((resp) => resp.text())
-                        .then((body) => {
-                            document.getElementById('messages').innerHTML = body
-                        });
-                }
-                function stopRecording() {
-                    fetch('/stop')
-                        .then((resp) => resp.text())
-                        .then((body) => {
-                            document.getElementById('messages').innerHTML = body
-                        });
-                }
-            </script>
-        </body>
-    </html>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio Recorder</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Include Tailwind CSS from CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 p-4 font-sans">
+    <h1 class="text-2xl font-bold text-gray-800">Audio Recorder</h1>
+    <label for="device" class="block text-lg text-gray-700 mt-4">Choose a device:</label>
+    <select id="device" class="block w-full p-3 mt-2 bg-white border border-gray-300 rounded-md">
+        {{ options|safe }}
+    </select>
+    <label for="channels" class="block text-lg text-gray-700 mt-4">Number of Channels:</label>
+    <select id="channels" class="block w-full p-3 mt-2 bg-white border border-gray-300 rounded-md">
+        <option value="1" selected>1 (Mono)</option>
+        <option value="2">2 (Stereo)</option>
+    </select>
+    <p id="messages" class="mt-4 text-red-500">
+        {% if recording_in_progress %}
+            <b>Recording in progress!</b>
+        {% endif %}
+    </p>
+    <button onclick="startRecording()" class="w-full py-3 px-4 mt-4 bg-green-500 text-white rounded-md hover:bg-green-600 focus:outline-none focus:bg-green-600">
+        Start Recording
+    </button>
+    <button onclick="stopRecording()" class="w-full py-3 px-4 mt-4 bg-red-500 text-white rounded-md hover:bg-red-600 focus:outline-none focus:bg-red-600">
+        Stop Recording
+    </button>
+    <h2 class="text-xl font-bold text-gray-800 mt-6">Recorded Files</h2>
+    <table class="w-full mt-4 border-collapse border border-gray-300">
+        <tr>
+            <th class="border border-gray-300 p-2">File Name</th>
+            <th class="border border-gray-300 p-2">Action</th>
+        </tr>
+        {{ files_table|safe }}
+    </table>
+    <script>
+        function startRecording() {
+            var device = document.getElementById('device').value;
+            var channels = document.getElementById('channels').value;
+            fetch(`/start?device=${device}&channels=${channels}`)
+                .then((resp) => resp.text())
+                .then((body) => {
+                    document.getElementById('messages').innerHTML = body;
+                });
+        }
+        function stopRecording() {
+            fetch('/stop')
+                .then((resp) => resp.text())
+                .then((body) => {
+                    document.getElementById('messages').innerHTML = body;
+                });
+        }
+    </script>
+</body>
+</html>
+
     """
 
 # Parse CLI arguments
@@ -168,7 +178,7 @@ def index():
     files = [f for f in os.listdir(recordings_folder) if f.endswith(".flac")]
     files_table = "".join(
         [
-            f'<tr><td>{f}</td><td><a href="/download/{f}">Download</a></td></tr>'
+            f'<tr><td>{f}</td><td><a class="text-indigo-500" href="/download/{f}">Download</a></td></tr>'
             for f in files
         ]
     )
@@ -223,4 +233,4 @@ def download(filename):
 
 if __name__ == "__main__":
     asyncio.set_event_loop(loop)
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host="0.0.0.0", port=8080, debug=True)
