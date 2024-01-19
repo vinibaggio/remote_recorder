@@ -1,1 +1,3 @@
 recordings/*
+venv/
+output.log
