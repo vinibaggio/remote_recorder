@@ -1,4 +1,3 @@
-import argparse
 import asyncio
 import datetime
 import logging
@@ -73,15 +72,8 @@ TEMPLATE = """
 
     """
 
-# Parse CLI arguments
-parser = argparse.ArgumentParser(description="Audio Recorder Web Application")
-parser.add_argument(
-    "--folder", type=str, default="recordings", help="Folder to store recordings"
-)
-args = parser.parse_args()
-
 # Check if the folder is writable
-recordings_folder = args.folder
+recordings_folder = os.environ.get('RECORDINGS_PATH', 'recordings')
 if not os.path.exists(recordings_folder):
     try:
         os.makedirs(recordings_folder)

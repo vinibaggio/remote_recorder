@@ -1,0 +1,12 @@
+[Unit]
+Description=Remote Recorder
+After=network.target
+
+[Service]
+ExecStart=/home/vinibaggio/remote_recorder/daemon.sh
+WorkingDirectory=/home/vinibaggio/remote_recorder/
+Restart=always
+User=vinibaggio
+
+[Install]
+WantedBy=multi-user.target

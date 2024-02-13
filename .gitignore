@@ -1,3 +1,4 @@
 recordings/*
 venv/
 output.log
+__pycache__
